@@ -1,0 +1,18 @@
+# ClipBridge dependencies
+# Install with: pip install -r requirements.txt
+# Requires Python 3.8+ on Windows 10/11.
+
+# Web server that receives the iPhone's request
+flask>=2.3
+
+# Copies plain text to the Windows clipboard
+pyperclip>=1.8.2
+
+# Windows clipboard access for images (bitmap, PNG and file-drop formats)
+pywin32>=306; sys_platform == "win32"
+
+# Image decoding, orientation fix and PNG/BMP conversion
+pillow>=10.0.0
+
+# Lets Pillow read iPhone HEIC photos
+pillow-heif>=0.13.0
