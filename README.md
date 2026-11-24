@@ -12,6 +12,7 @@ ClipBridge is a tiny background receiver that gives Windows a "Universal Clipboa
 ![Python](https://img.shields.io/badge/python-3.8%2B-3776AB?logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/server-Flask-000000?logo=flask&logoColor=white)
 ![iOS](https://img.shields.io/badge/iOS-Shortcuts-007AFF?logo=apple&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
 
 </div>
 
@@ -217,6 +218,6 @@ clipbridge/
 - [ ] HTTPS support
 - [ ] Multiple images in a single send
 
-## 📄 Disclaimer
+## 📄 License
 
-Not affiliated with or endorsed by Apple or Microsoft.
+[MIT](LICENSE) © 2026 Piyush Kale. Not affiliated with or endorsed by Apple or Microsoft.
