@@ -1,5 +1,5 @@
 # iPhone -> Windows clipboard receiver (text + images, works in Explorer and browsers)
-# Setup: pip install flask pyperclip pywin32 pillow pillow-heif
+# Setup: pip install flask pyperclip pywin32 pillow pillow-heif striprtf
 
 import sys, os
 if sys.stdout is None:
@@ -8,22 +8,144 @@ if sys.stderr is None:
     sys.stderr = open(os.devnull, "w")
 
 import io
+import re
 import time
 import struct
+import plistlib
+import zipfile
+from html.parser import HTMLParser
 from flask import Flask, request, abort
 import pyperclip
 import win32clipboard
 from PIL import Image, ImageOps
 import pillow_heif
+from striprtf.striprtf import rtf_to_text
 
 pillow_heif.register_heif_opener()  # lets Pillow read iPhone HEIC photos
 
-SECRET = "change-this-to-your-own-secret"  # must match the X-Token in your iPhone shortcut
+SECRET = "Change-to-your-own"  # must match the X-Token in your iPhone shortcut
 PORT = 5000
 SAVE_DIR = os.path.join(os.path.expanduser("~"), "Pictures", "iPhone Clipboard")
 KEEP_DAYS = 7  # saved images older than this are deleted automatically
 
 app = Flask(__name__)
+
+
+class _HTMLToText(HTMLParser):
+    """Minimal HTML -> plain text converter."""
+
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self.skip += 1
+        elif tag in ("br", "p", "div", "li", "tr"):
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style") and self.skip:
+            self.skip -= 1
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.parts.append(data)
+
+
+def _plist_strings(obj, out):
+    if isinstance(obj, str):
+        out.append(obj)
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            _plist_strings(v, out)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            _plist_strings(v, out)
+
+
+def _balanced_rtf(buf):
+    """Return just the RTF document at the start of buf (stops at its closing brace)."""
+    depth = 0
+    i = 0
+    n = len(buf)
+    while i < n:
+        c = buf[i:i + 1]
+        if c == b"\\":
+            i += 2  # skip escaped characters such as \{ \} \\
+            continue
+        if c == b"{":
+            depth += 1
+        elif c == b"}":
+            depth -= 1
+            if depth == 0:
+                return buf[:i + 1]
+        i += 1
+    return buf
+
+
+def extract_text(data):
+    """Turn whatever the iPhone sent (plain text, RTF, HTML, archived rich text) into plain text.
+
+    Text copied from photos or the camera (Live Text) often arrives as rich text,
+    which otherwise pastes as raw code or gibberish.
+    """
+    head = data[:64].lstrip()
+
+    # RTFD package sent as a zip archive: pull out the RTF file inside
+    if data.startswith(b"PK"):
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                for name in z.namelist():
+                    if name.lower().endswith(".rtf"):
+                        return rtf_to_text(z.read(name).decode("latin-1")).strip()
+        except Exception:
+            pass
+
+    # Rich Text Format, including RTF embedded inside an RTFD container
+    idx = data.find(b"{\\rtf")
+    if idx != -1:
+        try:
+            rtf = _balanced_rtf(data[idx:])
+            return rtf_to_text(rtf.decode("latin-1")).strip()
+        except Exception:
+            pass
+
+    # HTML
+    if head[:1] == b"<" and re.search(rb"<\s*(html|body|p|div|span|br)\b", data[:2000], re.I):
+        try:
+            parser = _HTMLToText()
+            parser.feed(data.decode("utf-8", errors="replace"))
+            text = "".join(parser.parts)
+            return re.sub(r"\n{3,}", "\n\n", text).strip()
+        except Exception:
+            pass
+
+    # Apple binary property list (archived attributed string): best-effort, take the longest text
+    if data.startswith(b"bplist00"):
+        try:
+            found = []
+            _plist_strings(plistlib.loads(data), found)
+            found = [s for s in found if s and s != "$null" and not s.startswith("NS")]
+            if found:
+                return max(found, key=len).strip()
+        except Exception:
+            pass
+
+    # Unrecognized binary data: keep a copy so the format can be inspected
+    if b"\x00" in data[:500] and data[:2] not in (b"\xff\xfe", b"\xfe\xff"):
+        try:
+            os.makedirs(SAVE_DIR, exist_ok=True)
+            with open(os.path.join(SAVE_DIR, "last_unrecognized_clipboard.bin"), "wb") as f:
+                f.write(data)
+        except Exception:
+            pass
+
+    # Plain text (UTF-16 if it has a byte-order mark, otherwise UTF-8)
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return data.decode("utf-16", errors="replace")
+    return data.decode("utf-8", errors="replace")
 
 
 def try_open_image(data):
@@ -99,7 +221,10 @@ def clip():
     if img is not None:
         return ("image ok", 200) if set_clipboard_image(img) else ("clipboard busy", 503)
 
-    pyperclip.copy(data.decode("utf-8", errors="replace"))
+    text = extract_text(data)
+    if not text:
+        return "empty", 400
+    pyperclip.copy(text)
     return "text ok"
 
 
