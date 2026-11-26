@@ -16,3 +16,6 @@ pillow>=10.0.0
 
 # Lets Pillow read iPhone HEIC photos
 pillow-heif>=0.13.0
+
+# Converts rich text (RTF) from iPhone Live Text copies back to plain text
+striprtf>=0.0.26
