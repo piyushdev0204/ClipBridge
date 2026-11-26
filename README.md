@@ -6,7 +6,7 @@
 
 Copy on your iPhone. Double-tap the back. Paste on your PC.
 
-ClipBridge is a tiny background receiver that gives Windows a "Universal Clipboard" for iPhone, built from an iOS Shortcut and about 100 lines of Python.
+ClipBridge is a tiny background receiver that gives Windows a "Universal Clipboard" for iPhone, built from an iOS Shortcut and a small Python script.
 
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)
 ![Python](https://img.shields.io/badge/python-3.8%2B-3776AB?logo=python&logoColor=white)
@@ -29,6 +29,7 @@ iOS doesn't allow apps to watch the clipboard in the background, so a fully auto
 - 📝 **Text and images** from the same shortcut, with no separate setup for each
 - 🖼️ **iPhone HEIC photos** are converted automatically
 - 🔄 **EXIF orientation fix**, so photos aren't pasted sideways
+- 🔤 **Live Text support**: text copied from photos or the camera is converted from rich text (RTF/RTFD) to clean plain text
 - 📂 **Pastes everywhere**: Paint, Word, chat apps, browsers and File Explorer
 - 👆 **Back Tap trigger**: double-tap the back of the phone, with no app to open
 - 🔒 **Shared-secret token**, so random devices on your network can't touch your clipboard
@@ -51,7 +52,7 @@ sequenceDiagram
     W->>W: Check token
     W->>W: Image or text?
     alt Text
-        W->>C: Copy text
+        W->>C: Convert rich text, tidy, copy
     else Image
         W->>C: Bitmap + PNG + file
     end
@@ -62,13 +63,22 @@ sequenceDiagram
 1. The **Back Tap** gesture runs an iOS Shortcut.
 2. The Shortcut reads your clipboard and sends it over your local network to the PC.
 3. A small **Flask** server on the PC checks the secret token and works out whether the payload is an image or text.
-4. Text is copied as is. Images are placed on the clipboard in **three formats at once**, so every app can paste them:
+4. Plain text is copied as is. Rich text (see below) is converted to plain text first. Images are placed on the clipboard in **three formats at once**, so every app can paste them:
 
 | Clipboard format | Used by |
 |---|---|
 | `CF_DIB` (bitmap) | Paint, Word, chat apps, most editors |
 | `PNG` (registered format) | Browsers (Chrome, Edge, Firefox) |
 | `CF_HDROP` (file path) | File Explorer and upload boxes that accept pasted files |
+
+### Text copied from photos (Live Text)
+
+When you select and copy text from a photo or the camera, iOS puts it on the clipboard as **rich text** (RTF/RTFD) instead of plain characters. Sent as is, it would paste as raw code. ClipBridge detects this and:
+
+1. Extracts the text from RTF, RTFD (zipped or flat), HTML or Apple archive data.
+2. Tidies the layout: removes tabs and indents, turns `1<tab>Text` into `1. Text`, collapses repeated spaces, fixes `word .` into `word.`, and trims extra blank lines.
+
+This cleanup only applies to rich text. Ordinary text copies, including code with tabs, are left untouched. Set `TIDY_TEXT = False` to turn the tidying off.
 
 ## 📦 Requirements
 
@@ -103,6 +113,7 @@ Use something long and random. **Never commit your real secret to GitHub.**
 | `PORT` | `5000` | Port the server listens on |
 | `SAVE_DIR` | `~/Pictures/iPhone Clipboard` | Where received images are saved as PNG |
 | `KEEP_DAYS` | `7` | Saved images older than this are deleted |
+| `TIDY_TEXT` | `True` | Clean up spacing, tabs and list numbering in text copied from photos |
 
 ### 3. Name your PC
 
@@ -176,7 +187,10 @@ Use one method, not both, or the second copy will fail because the port is alrea
 | **Timeout or can't connect** | Receiver isn't running, devices are on different networks, or the Wi-Fi profile is set to *Public* in Windows. Set it to **Private** |
 | `.local` name not found | Try the PC's IP from `ipconfig` to confirm everything else works. Some Windows debloat builds disable name discovery |
 | **Image pastes in Paint but not Explorer or a website** | Make sure you're running the latest `clip_receiver.pyw`, and end any old `pythonw.exe` first |
-| **Text pastes, images don't** | Run `pip install pywin32 pillow pillow-heif` again, then restart the receiver |
+| **Text pastes, images don't** | Run `pip install -r requirements.txt` again, then restart the receiver |
+| **Text from a photo pastes as `{\rtf1...}` or `rtfd`** | You're running an old version of `clip_receiver.pyw`, or `striprtf` isn't installed. Run `pip install -r requirements.txt` and restart the receiver |
+| **Text from a photo still pastes as junk** | The receiver saves unrecognized binary data to `Pictures/iPhone Clipboard/last_unrecognized_clipboard.bin`. Open it and check what it starts with, then open an issue |
+| **Words merged or misspelled in text from a photo** | That's the iPhone's text recognition, not ClipBridge. Use a steadier, straight-on photo, zoom in, or select smaller chunks of text |
 | **`clipboard busy` (503)** | Another app (often a clipboard manager) is holding the clipboard. Try again |
 | **Nothing happens in Notepad when pasting an image** | Notepad can't display images. Paste into Paint, Word or a chat app |
 
@@ -188,6 +202,7 @@ Use one method, not both, or the second copy will fail because the port is alrea
 - **PC must be awake.** If the laptop sleeps, the receiver sleeps too.
 - **One item at a time.** Copying several photos sends only the first.
 - **Transparency is flattened** in the bitmap and Paint paste. The saved PNG file keeps it.
+- **Live Text accuracy is up to iOS.** Misread or merged words from photos come from the phone's text recognition and can't be corrected by ClipBridge.
 - **One direction.** This is iPhone → PC only.
 
 ### Need it to work on any network?
@@ -208,6 +223,7 @@ Install [**Tailscale**](https://tailscale.com) on both devices (free for persona
 clipbridge/
 ├── clip_receiver.pyw   # the ClipBridge receiver (runs with no console window)
 ├── requirements.txt    # Python dependencies
+├── LICENSE
 └── README.md
 ```
 
